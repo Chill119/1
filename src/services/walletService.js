@@ -1,5 +1,4 @@
 import { ethers } from 'ethers';
-import StellarSdk from 'stellar-sdk';
 
 export const connectEthereumWallet = async () => {
   try {
@@ -7,10 +6,11 @@ export const connectEthereumWallet = async () => {
       throw new Error('MetaMask not detected. Please install MetaMask.');
     }
 
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    
-    window.ethereum.removeAllListeners('accountsChanged');
-    window.ethereum.removeAllListeners('chainChanged');
+    // Clear any existing listeners
+    if (window.ethereum.removeAllListeners) {
+      window.ethereum.removeAllListeners('accountsChanged');
+      window.ethereum.removeAllListeners('chainChanged');
+    }
 
     const accounts = await Promise.race([
       window.ethereum.request({ method: 'eth_requestAccounts' }),
@@ -23,10 +23,12 @@ export const connectEthereumWallet = async () => {
       throw new Error('No accounts found. Please unlock MetaMask.');
     }
 
-    const signer = provider.getSigner();
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
     const address = await signer.getAddress();
     const network = await provider.getNetwork();
 
+    // Set up event listeners
     window.ethereum.on('accountsChanged', (newAccounts) => {
       if (!newAccounts.length) {
         window.location.reload();
@@ -42,7 +44,8 @@ export const connectEthereumWallet = async () => {
       chainId: network.chainId,
       provider,
       signer,
-      type: 'ethereum'
+      type: 'ethereum',
+      connected: true
     };
   } catch (error) {
     if (error.code === 4001) {
@@ -57,9 +60,8 @@ export const connectEthereumWallet = async () => {
 
 export const connectStellarWallet = async () => {
   try {
-    // Check if Freighter is defined in window object
+    // Check if Freighter is available
     if (typeof window.freighter === 'undefined') {
-      // Open Freighter installation page in a new tab
       window.open('https://www.freighter.app/', '_blank');
       throw new Error('Please install Freighter wallet to continue. After installation, refresh the page.');
     }
@@ -67,8 +69,12 @@ export const connectStellarWallet = async () => {
     // Wait for Freighter to be ready
     const checkFreighterAvailability = async (retries = 5, interval = 1000) => {
       for (let i = 0; i < retries; i++) {
-        const isAvailable = await window.freighter?.isAvailable();
-        if (isAvailable) return true;
+        try {
+          const isAvailable = await window.freighter.isAvailable();
+          if (isAvailable) return true;
+        } catch (err) {
+          // Continue trying
+        }
         await new Promise(resolve => setTimeout(resolve, interval));
       }
       return false;
@@ -76,20 +82,26 @@ export const connectStellarWallet = async () => {
 
     const isAvailable = await checkFreighterAvailability();
     if (!isAvailable) {
-      throw new Error('Freighter wallet is not ready. Please refresh and try again.');
+      throw new Error('Freighter wallet is not ready. Please refresh the page and try again.');
     }
 
-    // Initialize Stellar SDK server
-    const server = new StellarSdk.Server('https://horizon-testnet.stellar.org');
-
-    // Connect to Freighter
+    // Check if already connected
+    let connected = false;
     try {
-      await window.freighter.connect();
+      connected = await window.freighter.isConnected();
     } catch (err) {
-      if (err.message?.includes('User rejected')) {
-        throw new Error('Connection rejected. Please approve the connection request.');
+      console.warn('Connection check failed:', err);
+    }
+    
+    if (!connected) {
+      try {
+        await window.freighter.connect();
+      } catch (connectError) {
+        if (connectError.message?.includes('User rejected')) {
+          throw new Error('Connection rejected. Please approve the connection request.');
+        }
+        throw new Error('Failed to connect to Freighter. Please try again.');
       }
-      throw new Error('Failed to connect to Freighter. Please try again.');
     }
 
     // Get public key with timeout
@@ -109,38 +121,18 @@ export const connectStellarWallet = async () => {
       throw new Error('No wallet address found. Please check Freighter wallet.');
     }
 
-    // Verify account exists
+    // Set network (optional, continue if fails)
     try {
-      await server.loadAccount(publicKey);
-    } catch (err) {
-      if (err.response?.status === 404) {
-        throw new Error('Account not found on Stellar network. Please fund your account first.');
-      }
-      throw new Error('Failed to verify account. Please try again.');
-    }
-
-    // Set network
-    try {
-      await window.freighter.setNetwork('TESTNET', {
-        networkPassphrase: StellarSdk.Networks.TESTNET,
-        networkUrl: 'https://horizon-testnet.stellar.org',
-      });
+      await window.freighter.setNetwork('TESTNET');
     } catch (err) {
       console.warn('Network setting warning:', err);
-      // Continue even if network setting fails
     }
-
-    // Setup disconnect handler
-    window.addEventListener('freighterDisconnected', () => {
-      window.location.reload();
-    });
 
     return {
       address: publicKey,
       type: 'stellar',
       network: 'TESTNET',
-      connected: true,
-      server
+      connected: true
     };
   } catch (error) {
     console.error('Stellar connection details:', {
@@ -148,5 +140,44 @@ export const connectStellarWallet = async () => {
       error: error.message
     });
     throw error;
+  }
+};
+
+export const isWalletConnected = async (type) => {
+  try {
+    if (type === 'stellar') {
+      if (typeof window.freighter === 'undefined') return false;
+      const isAvailable = await window.freighter.isAvailable();
+      if (!isAvailable) return false;
+      return await window.freighter.isConnected();
+    }
+
+    if (type === 'ethereum') {
+      if (!window.ethereum) return false;
+      const accounts = await window.ethereum.request({ 
+        method: 'eth_accounts'
+      });
+      return Boolean(accounts && accounts.length > 0);
+    }
+
+    return false;
+  } catch (error) {
+    console.error(`Wallet connection check failed: ${error.message}`);
+    return false;
+  }
+};
+
+export const disconnectWallet = async (type) => {
+  try {
+    if (type === 'stellar' && window.freighter) {
+      const isAvailable = await window.freighter.isAvailable();
+      if (isAvailable) {
+        await window.freighter.disconnect();
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error(`Wallet disconnect failed: ${error.message}`);
+    return false;
   }
 };

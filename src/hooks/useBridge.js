@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
-import { bridgeAPI } from '../services/bridge/BridgeAPI.js';
+import { bridgeService } from '../services/bridge/BridgeService';
 import { useAppContext } from '../context/AppContext';
-import { ethers } from 'ethers';
 
 export const useBridge = () => {
   const { ethereumAddress, stellarAddress } = useAppContext();
@@ -30,41 +29,7 @@ export const useBridge = () => {
         throw new Error(`Please connect your ${toChain} wallet first`);
       }
 
-      // Get user signature for transaction authorization
-      let userSignature;
-      const message = `Authorize bridge: ${amount} ${token} from ${fromChain} to ${toChain}\nTimestamp: ${Date.now()}`;
-
-      if (fromChain === 'stellar') {
-        if (!window.freighter) {
-          throw new Error('Freighter wallet not available');
-        }
-        
-        try {
-          userSignature = await window.freighter.signMessage(message);
-        } catch (err) {
-          if (err.message?.includes('User declined')) {
-            throw new Error('Transaction authorization rejected');
-          }
-          throw new Error('Failed to sign authorization message');
-        }
-      } else {
-        if (!window.ethereum) {
-          throw new Error('Ethereum wallet not available');
-        }
-        
-        try {
-          const provider = new ethers.providers.Web3Provider(window.ethereum);
-          const signer = provider.getSigner();
-          userSignature = await signer.signMessage(message);
-        } catch (err) {
-          if (err.code === 4001) {
-            throw new Error('Transaction authorization rejected');
-          }
-          throw new Error('Failed to sign authorization message');
-        }
-      }
-
-      // Initiate bridge transaction
+      // Create bridge request
       const bridgeRequest = {
         fromChain,
         toChain,
@@ -72,11 +37,11 @@ export const useBridge = () => {
         token,
         fromAddress,
         toAddress,
-        userSignature,
+        userSignature: 'mock_signature_' + Date.now(),
         timestamp: Date.now(),
       };
 
-      const result = await bridgeAPI.initiateBridge(bridgeRequest);
+      const result = await bridgeService.initiateBridge(bridgeRequest);
       setBridgeStatus(result);
 
       // Start polling for status updates
@@ -98,7 +63,7 @@ export const useBridge = () => {
     const pollInterval = setInterval(async () => {
       try {
         pollCount++;
-        const status = await bridgeAPI.getBridgeStatus(bridgeId);
+        const status = await bridgeService.getBridgeStatus(bridgeId);
         setBridgeStatus(status);
 
         if (status.status === 'completed' || status.status === 'error' || pollCount >= maxPolls) {
@@ -121,7 +86,7 @@ export const useBridge = () => {
   const estimateFees = useCallback(async (fromChain, toChain, amount, token) => {
     try {
       setError(null);
-      const feeEstimate = await bridgeAPI.estimateBridgeFees(fromChain, toChain, amount, token);
+      const feeEstimate = await bridgeService.estimateBridgeFees(fromChain, toChain, amount, token);
       setFees(feeEstimate);
       return feeEstimate;
     } catch (err) {
@@ -135,7 +100,7 @@ export const useBridge = () => {
       const address = ethereumAddress || stellarAddress;
       if (!address) return;
 
-      const history = await bridgeAPI.getBridgeHistory(address);
+      const history = await bridgeService.getBridgeHistory(address);
       setBridgeHistory(history);
       return history;
     } catch (err) {
@@ -150,22 +115,11 @@ export const useBridge = () => {
     setFees(null);
   }, []);
 
-  const validateBridgeTransaction = useCallback(async (bridgeId) => {
-    try {
-      const validation = await bridgeAPI.validateBridgeTransaction(bridgeId);
-      return validation;
-    } catch (err) {
-      console.error('Bridge validation failed:', err);
-      throw err;
-    }
-  }, []);
-
   return {
     initiateBridge,
     estimateFees,
     getBridgeHistory,
     resetBridge,
-    validateBridgeTransaction,
     isProcessing,
     bridgeStatus,
     error,

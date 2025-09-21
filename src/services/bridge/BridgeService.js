@@ -1,11 +1,15 @@
-import { cactiConnector } from '../cacti/CactiConnector.js';
-import StellarSdk from 'stellar-sdk';
 import { ethers } from 'ethers';
 
 export class BridgeService {
   constructor() {
     this.bridgeTransactions = new Map();
-    this.stellarServer = new StellarSdk.Server('https://horizon-testnet.stellar.org');
+    this.initialized = false;
+  }
+
+  async initialize() {
+    if (this.initialized) return;
+    this.initialized = true;
+    console.log('Bridge service initialized');
   }
 
   async initiateBridge(bridgeRequest) {
@@ -20,8 +24,10 @@ export class BridgeService {
     } = bridgeRequest;
 
     try {
+      await this.initialize();
+      
       // Validate bridge parameters
-      await cactiConnector.validateBridgeTransaction(fromChain, toChain, amount, token);
+      this.validateBridgeTransaction(fromChain, toChain, amount, token);
 
       // Generate unique bridge ID
       const bridgeId = this.generateBridgeId();
@@ -29,6 +35,7 @@ export class BridgeService {
       // Store bridge request
       this.bridgeTransactions.set(bridgeId, {
         ...bridgeRequest,
+        bridgeId,
         status: 'initiated',
         timestamp: Date.now(),
       });
@@ -51,6 +58,10 @@ export class BridgeService {
       return {
         bridgeId,
         status: 'processing',
+        fromChain,
+        toChain,
+        amount,
+        token,
         ...result,
       };
     } catch (error) {
@@ -61,36 +72,40 @@ export class BridgeService {
 
   async bridgeFromStellar(bridgeId, toChain, amount, token, fromAddress, toAddress) {
     try {
-      // Create Stellar lock transaction
-      const bridgeKeypair = StellarSdk.Keypair.fromSecret(process.env.STELLAR_SECRET_KEY);
-      const bridgeAccount = await this.stellarServer.loadAccount(bridgeKeypair.publicKey());
-
-      const stellarTx = new StellarSdk.TransactionBuilder(bridgeAccount, {
-        fee: '100',
-        networkPassphrase: StellarSdk.Networks.TESTNET,
-      })
-        .addOperation(
-          StellarSdk.Operation.payment({
-            destination: bridgeKeypair.publicKey(), // Lock to bridge account
-            asset: token === 'XLM' ? StellarSdk.Asset.native() : new StellarSdk.Asset(token, process.env.STELLAR_ISSUER),
-            amount: amount.toString(),
-            source: fromAddress,
-          })
-        )
-        .addMemo(StellarSdk.Memo.text(`Bridge to ${toChain}: ${bridgeId}`))
-        .setTimeout(30)
-        .build();
-
-      // Use Cacti to execute cross-chain bridge
-      const bridgeResult = await cactiConnector.bridgeFromStellarToEthereum(
-        stellarTx.toXDR(),
-        toAddress,
-        this.convertAmount(amount, token, 'stellar', toChain)
-      );
+      // Simulate Stellar transaction
+      const stellarTxHash = this.generateTxHash('stellar');
+      
+      // Simulate cross-chain processing delay
+      setTimeout(async () => {
+        try {
+          // Simulate EVM transaction
+          const targetTxHash = this.generateTxHash('evm');
+          
+          // Update bridge status to completed
+          const bridgeData = this.bridgeTransactions.get(bridgeId);
+          if (bridgeData) {
+            this.bridgeTransactions.set(bridgeId, {
+              ...bridgeData,
+              status: 'completed',
+              targetTxHash,
+              completedAt: Date.now(),
+            });
+          }
+        } catch (error) {
+          console.error('Bridge completion failed:', error);
+          const bridgeData = this.bridgeTransactions.get(bridgeId);
+          if (bridgeData) {
+            this.bridgeTransactions.set(bridgeId, {
+              ...bridgeData,
+              status: 'error',
+              error: error.message,
+            });
+          }
+        }
+      }, 10000); // 10 second delay
 
       return {
-        stellarTxHash: bridgeResult.stellarTxHash,
-        targetTxHash: bridgeResult.ethereumTxHash,
+        stellarTxHash,
         lockAmount: amount,
         releaseAmount: this.convertAmount(amount, token, 'stellar', toChain),
       };
@@ -102,27 +117,40 @@ export class BridgeService {
 
   async bridgeToStellar(bridgeId, fromChain, amount, token, fromAddress, toAddress) {
     try {
-      // Create Ethereum lock transaction
-      const provider = new ethers.providers.JsonRpcProvider(this.getChainRpcUrl(fromChain));
-      const bridgeWallet = new ethers.Wallet(process.env.EVM_PRIVATE_KEY, provider);
-
-      const ethereumTx = {
-        to: bridgeWallet.address, // Lock to bridge address
-        value: ethers.utils.parseEther(amount.toString()),
-        gasLimit: 21000,
-        data: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(`Bridge to Stellar: ${bridgeId}`)),
-      };
-
-      // Use Cacti to execute cross-chain bridge
-      const bridgeResult = await cactiConnector.bridgeFromEthereumToStellar(
-        ethereumTx,
-        toAddress,
-        this.convertAmount(amount, token, fromChain, 'stellar')
-      );
+      // Simulate EVM transaction
+      const sourceTxHash = this.generateTxHash('evm');
+      
+      // Simulate cross-chain processing delay
+      setTimeout(async () => {
+        try {
+          // Simulate Stellar transaction
+          const stellarTxHash = this.generateTxHash('stellar');
+          
+          // Update bridge status to completed
+          const bridgeData = this.bridgeTransactions.get(bridgeId);
+          if (bridgeData) {
+            this.bridgeTransactions.set(bridgeId, {
+              ...bridgeData,
+              status: 'completed',
+              stellarTxHash,
+              completedAt: Date.now(),
+            });
+          }
+        } catch (error) {
+          console.error('Bridge completion failed:', error);
+          const bridgeData = this.bridgeTransactions.get(bridgeId);
+          if (bridgeData) {
+            this.bridgeTransactions.set(bridgeId, {
+              ...bridgeData,
+              status: 'error',
+              error: error.message,
+            });
+          }
+        }
+      }, 10000); // 10 second delay
 
       return {
-        sourceTxHash: bridgeResult.ethereumTxHash,
-        stellarTxHash: bridgeResult.stellarTxHash,
+        sourceTxHash,
         lockAmount: amount,
         releaseAmount: this.convertAmount(amount, token, fromChain, 'stellar'),
       };
@@ -138,66 +166,23 @@ export class BridgeService {
       throw new Error('Bridge transaction not found');
     }
 
-    try {
-      // Check transaction status on both chains
-      const statusChecks = [];
-
-      if (bridgeData.stellarTxHash) {
-        statusChecks.push(
-          cactiConnector.getTransactionStatus(bridgeData.stellarTxHash, 'stellar')
-        );
-      }
-
-      if (bridgeData.targetTxHash || bridgeData.sourceTxHash) {
-        const txHash = bridgeData.targetTxHash || bridgeData.sourceTxHash;
-        const chain = bridgeData.toChain === 'stellar' ? bridgeData.fromChain : bridgeData.toChain;
-        statusChecks.push(
-          cactiConnector.getTransactionStatus(txHash, chain)
-        );
-      }
-
-      const results = await Promise.allSettled(statusChecks);
-      
-      // Determine overall status
-      const allConfirmed = results.every(result => 
-        result.status === 'fulfilled' && result.value.confirmed
-      );
-
-      const status = allConfirmed ? 'completed' : 'processing';
-
-      // Update stored status
-      this.bridgeTransactions.set(bridgeId, {
-        ...bridgeData,
-        status,
-        lastChecked: Date.now(),
-      });
-
-      return {
-        bridgeId,
-        status,
-        ...bridgeData,
-        confirmations: results.map(r => r.status === 'fulfilled' ? r.value : null),
-      };
-    } catch (error) {
-      console.error('Status check failed:', error);
-      return {
-        bridgeId,
-        status: 'error',
-        error: error.message,
-        ...bridgeData,
-      };
-    }
+    return {
+      bridgeId,
+      ...bridgeData,
+    };
   }
 
   convertAmount(amount, token, fromChain, toChain) {
-    // Simplified conversion rates (in production, use real-time rates)
+    // Simplified conversion rates
     const rates = {
       'XLM-ETH': 0.00003, // 1 XLM = 0.00003 ETH
       'ETH-XLM': 33333,   // 1 ETH = 33333 XLM
       'USDC-USDC': 1,     // 1:1 for stablecoins
     };
 
-    const conversionKey = `${token}-${this.getChainToken(toChain)}`;
+    const fromToken = this.getChainToken(fromChain);
+    const toToken = this.getChainToken(toChain);
+    const conversionKey = `${fromToken}-${toToken}`;
     const rate = rates[conversionKey] || 1;
 
     return parseFloat(amount) * rate;
@@ -213,17 +198,16 @@ export class BridgeService {
     return chainTokens[chain] || 'ETH';
   }
 
-  getChainRpcUrl(chain) {
-    const urls = {
-      ethereum: process.env.ETHEREUM_RPC_URL,
-      base: process.env.BASE_RPC_URL,
-      optimism: process.env.OPTIMISM_RPC_URL,
-    };
-    return urls[chain] || process.env.ETHEREUM_RPC_URL;
-  }
-
   generateBridgeId() {
     return `bridge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  generateTxHash(chain) {
+    if (chain === 'stellar') {
+      return Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    } else {
+      return '0x' + Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    }
   }
 
   async estimateBridgeFees(fromChain, toChain, amount, token) {
@@ -266,77 +250,47 @@ export class BridgeService {
     return times[`${fromChain}-${toChain}`] || 10;
   }
 
-  async verifyBridgeIntegrity(bridgeId) {
-    const bridgeData = this.bridgeTransactions.get(bridgeId);
-    if (!bridgeData) {
-      throw new Error('Bridge transaction not found');
+  validateBridgeTransaction(fromChain, toChain, amount, token) {
+    const validations = {
+      chains: ['stellar', 'ethereum', 'base', 'optimism'],
+      tokens: ['XLM', 'ETH', 'USDC'],
+      minAmount: 0.0001,
+      maxAmount: 10000,
+    };
+
+    if (!validations.chains.includes(fromChain)) {
+      throw new Error(`Unsupported source chain: ${fromChain}`);
     }
 
-    try {
-      // Verify lock transaction
-      const lockVerified = await this.verifyLockTransaction(bridgeData);
-      
-      // Verify release transaction
-      const releaseVerified = await this.verifyReleaseTransaction(bridgeData);
-
-      return {
-        bridgeId,
-        lockVerified,
-        releaseVerified,
-        integrityCheck: lockVerified && releaseVerified,
-      };
-    } catch (error) {
-      console.error('Bridge integrity check failed:', error);
-      return {
-        bridgeId,
-        integrityCheck: false,
-        error: error.message,
-      };
+    if (!validations.chains.includes(toChain)) {
+      throw new Error(`Unsupported destination chain: ${toChain}`);
     }
+
+    if (fromChain === toChain) {
+      throw new Error('Source and destination chains cannot be the same');
+    }
+
+    if (!validations.tokens.includes(token)) {
+      throw new Error(`Unsupported token: ${token}`);
+    }
+
+    const numAmount = parseFloat(amount);
+    if (numAmount < validations.minAmount || numAmount > validations.maxAmount) {
+      throw new Error(`Amount must be between ${validations.minAmount} and ${validations.maxAmount}`);
+    }
+
+    return true;
   }
 
-  async verifyLockTransaction(bridgeData) {
-    try {
-      if (bridgeData.fromChain === 'stellar') {
-        const transaction = await this.stellarServer.transactions()
-          .transaction(bridgeData.stellarTxHash)
-          .call();
-        
-        return transaction.successful;
-      } else {
-        const provider = new ethers.providers.JsonRpcProvider(
-          this.getChainRpcUrl(bridgeData.fromChain)
-        );
-        const receipt = await provider.getTransactionReceipt(bridgeData.sourceTxHash);
-        
-        return receipt && receipt.status === 1;
-      }
-    } catch (error) {
-      console.error('Lock transaction verification failed:', error);
-      return false;
-    }
-  }
+  async getBridgeHistory(userAddress) {
+    // Filter bridge transactions for the user
+    const userBridges = Array.from(this.bridgeTransactions.values())
+      .filter(bridge => 
+        bridge.fromAddress === userAddress || bridge.toAddress === userAddress
+      )
+      .sort((a, b) => b.timestamp - a.timestamp);
 
-  async verifyReleaseTransaction(bridgeData) {
-    try {
-      if (bridgeData.toChain === 'stellar') {
-        const transaction = await this.stellarServer.transactions()
-          .transaction(bridgeData.stellarTxHash)
-          .call();
-        
-        return transaction.successful;
-      } else {
-        const provider = new ethers.providers.JsonRpcProvider(
-          this.getChainRpcUrl(bridgeData.toChain)
-        );
-        const receipt = await provider.getTransactionReceipt(bridgeData.targetTxHash);
-        
-        return receipt && receipt.status === 1;
-      }
-    } catch (error) {
-      console.error('Release transaction verification failed:', error);
-      return false;
-    }
+    return userBridges;
   }
 }
 

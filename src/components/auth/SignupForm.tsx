@@ -37,6 +37,9 @@ const SignupForm = () => {
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/dashboard`,
+          data: {
+            email_confirm: false // Disable email confirmation for development
+          }
         },
       });
 
@@ -48,10 +51,17 @@ const SignupForm = () => {
         }
       } else {
         setSuccess(true);
-        // Redirect to dashboard after successful signup
-        setTimeout(() => {
-          navigate('/dashboard');
-        }, 2000);
+        // Auto sign in after successful signup
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        
+        if (!signInError) {
+          setTimeout(() => {
+            navigate('/dashboard');
+          }, 2000);
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
