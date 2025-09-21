@@ -1,6 +1,3 @@
-import { bridgeService } from './BridgeService.js';
-import { transactionValidator } from './TransactionValidator.js';
-
 export class BridgeAPI {
   constructor() {
     this.baseUrl = '/api/bridge';
@@ -148,48 +145,6 @@ export class BridgeAPI {
 
   isValidEthereumAddress(address) {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
-  }
-
-  async checkNetworkHealth(chain) {
-    try {
-      if (chain === 'stellar') {
-        const ledger = await this.stellarServer.ledgers()
-          .order('desc')
-          .limit(1)
-          .call();
-        
-        return {
-          healthy: true,
-          latestLedger: ledger.records[0].sequence,
-          timestamp: ledger.records[0].closed_at,
-        };
-      } else {
-        const provider = new ethers.providers.JsonRpcProvider(this.getChainRpcUrl(chain));
-        const blockNumber = await provider.getBlockNumber();
-        const block = await provider.getBlock(blockNumber);
-        
-        return {
-          healthy: true,
-          latestBlock: blockNumber,
-          timestamp: new Date(block.timestamp * 1000).toISOString(),
-        };
-      }
-    } catch (error) {
-      console.error(`Network health check failed for ${chain}:`, error);
-      return {
-        healthy: false,
-        error: error.message,
-      };
-    }
-  }
-
-  getChainRpcUrl(chain) {
-    const urls = {
-      ethereum: process.env.ETHEREUM_RPC_URL,
-      base: process.env.BASE_RPC_URL,
-      optimism: process.env.OPTIMISM_RPC_URL,
-    };
-    return urls[chain] || process.env.ETHEREUM_RPC_URL;
   }
 }
 
