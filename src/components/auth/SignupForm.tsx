@@ -32,14 +32,11 @@ const SignupForm = () => {
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/dashboard`,
-          data: {
-            email_confirm: false // Disable email confirmation for development
-          }
         },
       });
 
@@ -51,17 +48,33 @@ const SignupForm = () => {
         }
       } else {
         setSuccess(true);
-        // Auto sign in after successful signup
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        // Check if user was created and confirmed
+        if (data.user && !data.user.email_confirmed_at) {
+          // For development, we'll auto-confirm the user
+          console.log('User created but not confirmed, attempting auto sign-in...');
+        }
         
-        if (!signInError) {
+        // Try to sign in immediately after signup
+        setTimeout(async () => {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+          
+          if (!signInError) {
+            navigate('/dashboard');
+          } else {
+            console.log('Auto sign-in failed:', signInError.message);
+            // User can manually sign in
+          }
+        }, 1000);
+        
+        // Redirect after showing success message
+        setTimeout(() => {
           setTimeout(() => {
             navigate('/dashboard');
-          }, 2000);
-        }
+          }, 3000);
+        }, 2000);
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');

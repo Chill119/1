@@ -26,9 +26,11 @@ const LoginForm = () => {
 
       if (error) {
         if (error.message.includes('Invalid login credentials') || error.message.includes('Email not confirmed')) {
-          setError('Invalid email or password. Please check your credentials and try again.');
+          setError('Invalid email or password. Please check your credentials and try again. If you just signed up, please wait a moment and try again.');
         } else if (error.message.includes('Email not confirmed')) {
           setError('Please check your email and click the confirmation link before signing in.');
+        } else if (error.message.includes('signup_disabled')) {
+          setError('Account creation is currently disabled. Please contact support.');
         } else {
           setError(error.message);
         }

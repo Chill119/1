@@ -14,18 +14,18 @@ const Home = () => {
         {/* Auth Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
           <Link
-            to="/login"
-            className="flex items-center justify-center px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
-          >
-            <LogIn className="mr-2" size={20} />
-            Sign In
-          </Link>
-          <Link
             to="/signup"
             className="flex items-center justify-center px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors"
           >
             <UserPlus className="mr-2" size={20} />
             Create Account
+          </Link>
+          <Link
+            to="/login"
+            className="flex items-center justify-center px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+          >
+            <LogIn className="mr-2" size={20} />
+            Sign In
           </Link>
         </div>
         
