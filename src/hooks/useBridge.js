@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { bridgeService } from '../services/bridge/BridgeService';
 import { useAppContext } from '../context/AppContext';
+import { supabase } from '../lib/supabase';
 
 export const useBridge = () => {
   const { ethereumAddress, stellarAddress } = useAppContext();
@@ -9,6 +10,80 @@ export const useBridge = () => {
   const [error, setError] = useState(null);
   const [fees, setFees] = useState(null);
   const [bridgeHistory, setBridgeHistory] = useState([]);
+
+  useEffect(() => {
+    let subscription = null;
+
+    const setupRealtimeSubscription = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        subscription = supabase
+          .channel('bridge_transactions_realtime')
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'bridge_transactions',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload) => {
+              const updatedBridge = payload.new;
+
+              if (bridgeStatus && bridgeStatus.bridgeId === updatedBridge.bridge_id) {
+                setBridgeStatus({
+                  bridgeId: updatedBridge.bridge_id,
+                  status: updatedBridge.status,
+                  fromChain: updatedBridge.from_chain,
+                  toChain: updatedBridge.to_chain,
+                  amount: updatedBridge.amount,
+                  token: updatedBridge.token,
+                  stellarTxHash: updatedBridge.stellar_tx_hash,
+                  sourceTxHash: updatedBridge.source_tx_hash,
+                  targetTxHash: updatedBridge.target_tx_hash,
+                });
+              }
+
+              setBridgeHistory(prev => {
+                const index = prev.findIndex(b => b.bridgeId === updatedBridge.bridge_id);
+                if (index !== -1) {
+                  const updated = [...prev];
+                  updated[index] = {
+                    bridgeId: updatedBridge.bridge_id,
+                    fromChain: updatedBridge.from_chain,
+                    toChain: updatedBridge.to_chain,
+                    fromAddress: updatedBridge.from_address,
+                    toAddress: updatedBridge.to_address,
+                    amount: updatedBridge.amount,
+                    token: updatedBridge.token,
+                    status: updatedBridge.status,
+                    stellarTxHash: updatedBridge.stellar_tx_hash,
+                    sourceTxHash: updatedBridge.source_tx_hash,
+                    targetTxHash: updatedBridge.target_tx_hash,
+                    timestamp: new Date(updatedBridge.created_at).getTime(),
+                  };
+                  return updated;
+                }
+                return prev;
+              });
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.error('Failed to setup realtime subscription:', err);
+      }
+    };
+
+    setupRealtimeSubscription();
+
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, [bridgeStatus]);
 
   const initiateBridge = useCallback(async (bridgeParams) => {
     const { fromChain, toChain, amount, token } = bridgeParams;

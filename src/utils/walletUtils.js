@@ -18,8 +18,8 @@ export const connectEVMWallet = async (chainType, walletProvider) => {
       throw new Error('No Ethereum accounts found. Please unlock your wallet.');
     }
 
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const signer = provider.getSigner();
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
     const account = accounts[0];
     const network = await provider.getNetwork();
     

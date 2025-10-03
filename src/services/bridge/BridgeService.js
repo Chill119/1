@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { supabase } from '../../lib/supabase';
 
 export class BridgeService {
   constructor() {
@@ -25,14 +26,38 @@ export class BridgeService {
 
     try {
       await this.initialize();
-      
-      // Validate bridge parameters
+
       this.validateBridgeTransaction(fromChain, toChain, amount, token);
 
-      // Generate unique bridge ID
       const bridgeId = this.generateBridgeId();
 
-      // Store bridge request
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const bridgeData = {
+        user_id: user.id,
+        bridge_id: bridgeId,
+        from_chain: fromChain,
+        to_chain: toChain,
+        from_address: fromAddress,
+        to_address: toAddress,
+        amount: parseFloat(amount),
+        token: token,
+        status: 'initiated',
+      };
+
+      const { data: insertedBridge, error: insertError } = await supabase
+        .from('bridge_transactions')
+        .insert([bridgeData])
+        .select()
+        .single();
+
+      if (insertError) {
+        throw new Error(`Failed to store bridge transaction: ${insertError.message}`);
+      }
+
       this.bridgeTransactions.set(bridgeId, {
         ...bridgeRequest,
         bridgeId,
@@ -40,7 +65,6 @@ export class BridgeService {
         timestamp: Date.now(),
       });
 
-      // Execute bridge based on source chain
       let result;
       if (fromChain === 'stellar') {
         result = await this.bridgeFromStellar(bridgeId, toChain, amount, token, fromAddress, toAddress);
@@ -48,7 +72,17 @@ export class BridgeService {
         result = await this.bridgeToStellar(bridgeId, fromChain, amount, token, fromAddress, toAddress);
       }
 
-      // Update bridge status
+      await supabase
+        .from('bridge_transactions')
+        .update({
+          status: 'processing',
+          stellar_tx_hash: result.stellarTxHash,
+          source_tx_hash: result.sourceTxHash,
+          lock_amount: result.lockAmount,
+          release_amount: result.releaseAmount,
+        })
+        .eq('bridge_id', bridgeId);
+
       this.bridgeTransactions.set(bridgeId, {
         ...this.bridgeTransactions.get(bridgeId),
         status: 'processing',
@@ -72,16 +106,12 @@ export class BridgeService {
 
   async bridgeFromStellar(bridgeId, toChain, amount, token, fromAddress, toAddress) {
     try {
-      // Simulate Stellar transaction
       const stellarTxHash = this.generateTxHash('stellar');
-      
-      // Simulate cross-chain processing delay
+
       setTimeout(async () => {
         try {
-          // Simulate EVM transaction
           const targetTxHash = this.generateTxHash('evm');
-          
-          // Update bridge status to completed
+
           const bridgeData = this.bridgeTransactions.get(bridgeId);
           if (bridgeData) {
             this.bridgeTransactions.set(bridgeId, {
@@ -91,6 +121,15 @@ export class BridgeService {
               completedAt: Date.now(),
             });
           }
+
+          await supabase
+            .from('bridge_transactions')
+            .update({
+              status: 'completed',
+              target_tx_hash: targetTxHash,
+              completed_at: new Date().toISOString(),
+            })
+            .eq('bridge_id', bridgeId);
         } catch (error) {
           console.error('Bridge completion failed:', error);
           const bridgeData = this.bridgeTransactions.get(bridgeId);
@@ -101,8 +140,16 @@ export class BridgeService {
               error: error.message,
             });
           }
+
+          await supabase
+            .from('bridge_transactions')
+            .update({
+              status: 'error',
+              error_message: error.message,
+            })
+            .eq('bridge_id', bridgeId);
         }
-      }, 10000); // 10 second delay
+      }, 10000);
 
       return {
         stellarTxHash,
@@ -117,16 +164,12 @@ export class BridgeService {
 
   async bridgeToStellar(bridgeId, fromChain, amount, token, fromAddress, toAddress) {
     try {
-      // Simulate EVM transaction
       const sourceTxHash = this.generateTxHash('evm');
-      
-      // Simulate cross-chain processing delay
+
       setTimeout(async () => {
         try {
-          // Simulate Stellar transaction
           const stellarTxHash = this.generateTxHash('stellar');
-          
-          // Update bridge status to completed
+
           const bridgeData = this.bridgeTransactions.get(bridgeId);
           if (bridgeData) {
             this.bridgeTransactions.set(bridgeId, {
@@ -136,6 +179,15 @@ export class BridgeService {
               completedAt: Date.now(),
             });
           }
+
+          await supabase
+            .from('bridge_transactions')
+            .update({
+              status: 'completed',
+              stellar_tx_hash: stellarTxHash,
+              completed_at: new Date().toISOString(),
+            })
+            .eq('bridge_id', bridgeId);
         } catch (error) {
           console.error('Bridge completion failed:', error);
           const bridgeData = this.bridgeTransactions.get(bridgeId);
@@ -146,8 +198,16 @@ export class BridgeService {
               error: error.message,
             });
           }
+
+          await supabase
+            .from('bridge_transactions')
+            .update({
+              status: 'error',
+              error_message: error.message,
+            })
+            .eq('bridge_id', bridgeId);
         }
-      }, 10000); // 10 second delay
+      }, 10000);
 
       return {
         sourceTxHash,
@@ -283,14 +343,47 @@ export class BridgeService {
   }
 
   async getBridgeHistory(userAddress) {
-    // Filter bridge transactions for the user
-    const userBridges = Array.from(this.bridgeTransactions.values())
-      .filter(bridge => 
-        bridge.fromAddress === userAddress || bridge.toAddress === userAddress
-      )
-      .sort((a, b) => b.timestamp - a.timestamp);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
 
-    return userBridges;
+      const { data: bridges, error } = await supabase
+        .from('bridge_transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw new Error(`Failed to fetch bridge history: ${error.message}`);
+      }
+
+      return bridges.map(bridge => ({
+        bridgeId: bridge.bridge_id,
+        fromChain: bridge.from_chain,
+        toChain: bridge.to_chain,
+        fromAddress: bridge.from_address,
+        toAddress: bridge.to_address,
+        amount: bridge.amount,
+        token: bridge.token,
+        status: bridge.status,
+        stellarTxHash: bridge.stellar_tx_hash,
+        sourceTxHash: bridge.source_tx_hash,
+        targetTxHash: bridge.target_tx_hash,
+        timestamp: new Date(bridge.created_at).getTime(),
+        completedAt: bridge.completed_at ? new Date(bridge.completed_at).getTime() : null,
+      }));
+    } catch (error) {
+      console.error('Failed to fetch bridge history:', error);
+      const userBridges = Array.from(this.bridgeTransactions.values())
+        .filter(bridge =>
+          bridge.fromAddress === userAddress || bridge.toAddress === userAddress
+        )
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+      return userBridges;
+    }
   }
 }
 

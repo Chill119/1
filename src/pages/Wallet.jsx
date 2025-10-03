@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Send, Download, History, RefreshCw, Eye, EyeOff, Copy, Check } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { ethers } from 'ethers';
+import { walletTransactionService } from '../services/WalletTransactionService';
+import ethereumWallet from '../services/wallets/ethereum';
+import stellarWallet from '../services/wallets/stellar';
 
 const Wallet = () => {
   const { ethereumAddress, stellarAddress } = useAppContext();
@@ -57,38 +60,27 @@ const Wallet = () => {
 
   const fetchTransactionHistory = async () => {
     try {
-      // Simulate transaction history
-      const mockTransactions = [
-        {
-          id: '1',
-          type: 'send',
-          amount: '0.1',
-          token: selectedChain === 'ethereum' ? 'ETH' : 'XLM',
-          to: '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b5',
-          timestamp: Date.now() - 3600000,
-          status: 'completed',
-          hash: '0x' + Math.random().toString(16).substr(2, 64)
-        },
-        {
-          id: '2',
-          type: 'receive',
-          amount: '0.5',
-          token: selectedChain === 'ethereum' ? 'ETH' : 'XLM',
-          from: '0x8ba1f109551bD432803012645Hac136c30C6756',
-          timestamp: Date.now() - 7200000,
-          status: 'completed',
-          hash: '0x' + Math.random().toString(16).substr(2, 64)
-        }
-      ];
-      setTransactions(mockTransactions);
+      const txHistory = await walletTransactionService.getTransactionHistory(selectedChain, 20);
+      setTransactions(txHistory.map(tx => ({
+        id: tx.id,
+        type: tx.type,
+        amount: tx.amount,
+        token: tx.token,
+        to: tx.to,
+        from: tx.from,
+        timestamp: tx.timestamp,
+        status: tx.status,
+        hash: tx.hash,
+      })));
     } catch (err) {
       console.error('Error fetching transaction history:', err);
+      setTransactions([]);
     }
   };
 
   const handleSend = async (e) => {
     e.preventDefault();
-    
+
     if (!recipient || !amount) {
       setError('Please fill in all fields');
       return;
@@ -105,15 +97,19 @@ const Wallet = () => {
       setError(null);
 
       if (selectedChain === 'ethereum' && window.ethereum) {
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        
-        const tx = await signer.sendTransaction({
+        const tx = await ethereumWallet.sendTransaction(recipient, amount);
+
+        await walletTransactionService.saveTransaction({
+          hash: tx.hash,
+          chain: 'ethereum',
+          type: 'send',
+          from: connectedAddress,
           to: recipient,
-          value: ethers.parseEther(amount)
+          amount,
+          token: 'ETH',
+          status: 'pending',
         });
 
-        // Add to transaction history
         const newTransaction = {
           id: Date.now().toString(),
           type: 'send',
@@ -127,18 +123,28 @@ const Wallet = () => {
         setTransactions(prev => [newTransaction, ...prev]);
 
         await tx.wait();
-        
-        // Update transaction status
-        setTransactions(prev => 
-          prev.map(t => t.id === newTransaction.id ? { ...t, status: 'completed' } : t)
+
+        await walletTransactionService.updateTransactionStatus(tx.hash, 'completed');
+
+        setTransactions(prev =>
+          prev.map(t => t.hash === tx.hash ? { ...t, status: 'completed' } : t)
         );
 
-        // Refresh balance
         await fetchBalances();
       } else if (selectedChain === 'stellar') {
-        // Simulate Stellar transaction
-        const mockTxHash = 'stellar_' + Math.random().toString(36).substr(2, 9);
-        
+        const result = await stellarWallet.sendPayment(recipient, amount);
+
+        await walletTransactionService.saveTransaction({
+          hash: result.hash,
+          chain: 'stellar',
+          type: 'send',
+          from: connectedAddress,
+          to: recipient,
+          amount,
+          token: 'XLM',
+          status: 'completed',
+        });
+
         const newTransaction = {
           id: Date.now().toString(),
           type: 'send',
@@ -147,18 +153,13 @@ const Wallet = () => {
           to: recipient,
           timestamp: Date.now(),
           status: 'completed',
-          hash: mockTxHash
+          hash: result.hash
         };
         setTransactions(prev => [newTransaction, ...prev]);
-        
-        // Simulate balance update
-        setBalances(prev => ({
-          ...prev,
-          stellar: (parseFloat(prev.stellar) - parseFloat(amount)).toFixed(7)
-        }));
+
+        await fetchBalances();
       }
-      
-      // Clear form
+
       setRecipient('');
       setAmount('');
     } catch (err) {

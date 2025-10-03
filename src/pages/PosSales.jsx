@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { DollarSign, CreditCard, Coins, CheckCircle, AlertCircle, Loader, QrCode } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { ethers } from 'ethers';
+import { posTransactionService } from '../services/POSTransactionService';
+import ethereumWallet from '../services/wallets/ethereum';
+import stellarWallet from '../services/wallets/stellar';
 
 const PosSales = () => {
   const { ethereumAddress, stellarAddress } = useAppContext();
@@ -61,59 +64,77 @@ const PosSales = () => {
       throw new Error('Please connect a crypto wallet first');
     }
 
+    const transactionId = 'pos_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
     if (ethereumAddress) {
-      // Process Ethereum payment
       if (!window.ethereum) {
         throw new Error('MetaMask not available');
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      
-      // Demo merchant address
       const merchantAddress = '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b5';
-      
-      const tx = await signer.sendTransaction({
-        to: merchantAddress,
-        value: ethers.parseEther((parseFloat(amount) * 0.0003).toString()), // Convert USD to ETH
-        gasLimit: 21000
+      const ethAmount = (parseFloat(amount) * 0.0003).toString();
+
+      await posTransactionService.createTransaction({
+        transactionId,
+        paymentMethod: 'crypto',
+        amount: parseFloat(amount),
+        currency: 'USD',
+        customerEmail,
+        status: 'processing',
       });
+
+      const tx = await ethereumWallet.sendTransaction(merchantAddress, ethAmount);
 
       setTransactionHash(tx.hash);
       setPaymentStatus('processing');
 
-      // Wait for confirmation
+      await posTransactionService.updateTransactionStatus(transactionId, 'processing', {
+        transaction_hash: tx.hash,
+      });
+
       await tx.wait();
       setPaymentStatus('success');
-      
-      // Send receipt
+
+      await posTransactionService.updateTransactionStatus(transactionId, 'completed');
+
       await sendReceipt('Cryptocurrency', tx.hash);
     } else if (stellarAddress) {
-      // Process Stellar payment using Freighter
       try {
         setPaymentStatus('processing');
-        
+
         if (!window.freighter) {
           throw new Error('Freighter wallet not available');
         }
 
-        // Check if connected
         const isConnected = await window.freighter.isConnected();
         if (!isConnected) {
           throw new Error('Please connect your Freighter wallet');
         }
 
-        // Get public key
-        const publicKey = await window.freighter.getPublicKey();
-        
-        // Simulate transaction hash for demo
-        const mockTxHash = 'stellar_tx_' + Math.random().toString(36).substr(2, 9);
-        setTransactionHash(mockTxHash);
+        const merchantAddress = 'GDJXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+        const xlmAmount = (parseFloat(amount) * 10).toString();
+
+        await posTransactionService.createTransaction({
+          transactionId,
+          paymentMethod: 'crypto',
+          amount: parseFloat(amount),
+          currency: 'USD',
+          customerEmail,
+          status: 'processing',
+        });
+
+        const result = await stellarWallet.sendPayment(merchantAddress, xlmAmount);
+
+        setTransactionHash(result.hash);
         setPaymentStatus('success');
-        
-        // Send receipt
-        await sendReceipt('Stellar Lumens', mockTxHash);
+
+        await posTransactionService.updateTransactionStatus(transactionId, 'completed', {
+          transaction_hash: result.hash,
+        });
+
+        await sendReceipt('Stellar Lumens', result.hash);
       } catch (err) {
+        await posTransactionService.updateTransactionStatus(transactionId, 'failed');
         if (err.message?.includes('User declined')) {
           throw new Error('Payment cancelled by user');
         }
@@ -124,53 +145,85 @@ const PosSales = () => {
 
   const processCreditCardPayment = async () => {
     setPaymentStatus('processing');
-    
-    // Simulate credit card processing
+
+    const transactionId = 'cc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+    await posTransactionService.createTransaction({
+      transactionId,
+      paymentMethod: 'credit',
+      amount: parseFloat(amount),
+      currency: 'USD',
+      customerEmail,
+      status: 'processing',
+    });
+
     await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    const mockTransactionId = 'cc_' + Math.random().toString(36).substr(2, 9);
-    setTransactionHash(mockTransactionId);
+
+    setTransactionHash(transactionId);
     setPaymentStatus('success');
-    
-    // Send receipt
-    await sendReceipt('Credit Card', mockTransactionId);
+
+    await posTransactionService.updateTransactionStatus(transactionId, 'completed');
+
+    await sendReceipt('Credit Card', transactionId);
   };
 
   const processBankPayment = async () => {
     setPaymentStatus('processing');
-    
-    // Simulate bank transfer processing
+
+    const transactionId = 'bank_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+    await posTransactionService.createTransaction({
+      transactionId,
+      paymentMethod: 'bank',
+      amount: parseFloat(amount),
+      currency: 'USD',
+      customerEmail,
+      status: 'processing',
+    });
+
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const mockTransactionId = 'bank_' + Math.random().toString(36).substr(2, 9);
-    setTransactionHash(mockTransactionId);
+
+    setTransactionHash(transactionId);
     setPaymentStatus('success');
-    
-    // Send receipt
-    await sendReceipt('Bank Transfer', mockTransactionId);
+
+    await posTransactionService.updateTransactionStatus(transactionId, 'completed');
+
+    await sendReceipt('Bank Transfer', transactionId);
   };
 
   const generateQRPayment = async () => {
     setPaymentStatus('processing');
-    
-    // Generate QR code for payment
+
+    const transactionId = 'qr_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
     const paymentData = {
+      transactionId,
       amount: parseFloat(amount),
       currency: 'USD',
       merchant: 'London Blockchain Bridge',
       timestamp: Date.now()
     };
-    
+
     const qrData = JSON.stringify(paymentData);
     setQrCode(qrData);
     setPaymentStatus('qr_generated');
-    
-    // Simulate QR payment completion after 10 seconds
-    setTimeout(() => {
-      const mockTransactionId = 'qr_' + Math.random().toString(36).substr(2, 9);
-      setTransactionHash(mockTransactionId);
+
+    await posTransactionService.createTransaction({
+      transactionId,
+      paymentMethod: 'qr',
+      amount: parseFloat(amount),
+      currency: 'USD',
+      customerEmail,
+      status: 'processing',
+      qrData,
+    });
+
+    setTimeout(async () => {
+      setTransactionHash(transactionId);
       setPaymentStatus('success');
-      sendReceipt('QR Code Payment', mockTransactionId);
+
+      await posTransactionService.updateTransactionStatus(transactionId, 'completed');
+      await sendReceipt('QR Code Payment', transactionId);
     }, 10000);
   };
 
