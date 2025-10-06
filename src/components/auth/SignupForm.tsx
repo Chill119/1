@@ -36,7 +36,7 @@ const SignupForm = () => {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`,
+          emailRedirectTo: `${window.location.origin}/`,
         },
       });
 
@@ -60,19 +60,19 @@ const SignupForm = () => {
             email,
             password,
           });
-          
+
           if (!signInError) {
-            navigate('/dashboard');
+            navigate('/');
           } else {
             console.log('Auto sign-in failed:', signInError.message);
             // User can manually sign in
           }
         }, 1000);
-        
+
         // Redirect after showing success message
         setTimeout(() => {
           setTimeout(() => {
-            navigate('/dashboard');
+            navigate('/');
           }, 3000);
         }, 2000);
       }
@@ -91,7 +91,7 @@ const SignupForm = () => {
             <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
             <h2 className="text-2xl font-bold mb-2">Account Created Successfully!</h2>
             <p className="text-green-200">
-              Welcome! You're being redirected to your dashboard...
+              Welcome! You're being redirected to the home page...
             </p>
           </div>
         </div>

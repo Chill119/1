@@ -35,7 +35,7 @@ const LoginForm = () => {
           setError(error.message);
         }
       } else {
-        navigate('/dashboard');
+        navigate('/');
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -55,7 +55,7 @@ const LoginForm = () => {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}/`,
       });
 
       if (error) {
