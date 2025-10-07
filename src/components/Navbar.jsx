@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, ArrowRightLeft, Home, Code2, LayoutDashboard } from 'lucide-react';
+import { ShoppingCart, ArrowRightLeft, Home, Code2, LayoutDashboard, Wallet } from 'lucide-react';
 import WalletConnect from './WalletConnect';
 
 const Navbar = () => {
@@ -17,6 +17,7 @@ const Navbar = () => {
             <NavLink to="/dashboard" icon={<LayoutDashboard size={20} />} text="Dashboard" />
             <NavLink to="/bridge" icon={<ArrowRightLeft size={20} />} text="Bridge" />
             <NavLink to="/pos" icon={<ShoppingCart size={20} />} text="POS" />
+            <NavLink to="/wallet" icon={<Wallet size={20} />} text="Wallet" />
             <NavLink to="/soroban" icon={<Code2 size={20} />} text="Soroban" />
             <WalletConnect />
           </div>
