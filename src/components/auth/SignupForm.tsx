@@ -62,7 +62,11 @@ const SignupForm = () => {
           });
 
           if (!signInError) {
-            navigate('/dashboard', { replace: true });
+            // Verify session was created before navigating
+            const { data } = await supabase.auth.getSession();
+            if (data?.session) {
+              navigate('/dashboard', { replace: true });
+            }
           } else {
             console.log('Auto sign-in failed:', signInError.message);
             // User can manually sign in
