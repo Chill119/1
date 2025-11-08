@@ -35,7 +35,7 @@ const LoginForm = () => {
           setError(error.message);
         }
       } else {
-        navigate('/');
+        navigate('/dashboard', { replace: true });
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');

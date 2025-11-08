@@ -62,19 +62,15 @@ const SignupForm = () => {
           });
 
           if (!signInError) {
-            navigate('/');
+            navigate('/dashboard', { replace: true });
           } else {
             console.log('Auto sign-in failed:', signInError.message);
             // User can manually sign in
+            setTimeout(() => {
+              navigate('/login', { replace: true });
+            }, 3000);
           }
         }, 1000);
-
-        // Redirect after showing success message
-        setTimeout(() => {
-          setTimeout(() => {
-            navigate('/');
-          }, 3000);
-        }, 2000);
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
