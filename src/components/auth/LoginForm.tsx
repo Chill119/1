@@ -35,11 +35,7 @@ const LoginForm = () => {
           setError(error.message);
         }
       } else {
-        // Verify session was created before navigating
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-          navigate('/dashboard', { replace: true });
-        }
+        navigate('/dashboard', { replace: true });
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
