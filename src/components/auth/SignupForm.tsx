@@ -11,7 +11,7 @@ const SignupForm = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -47,34 +47,26 @@ const SignupForm = () => {
           setError(error.message);
         }
       } else {
-        setSuccess(true);
-        // Check if user was created and confirmed
-        if (data.user && !data.user.email_confirmed_at) {
-          // For development, we'll auto-confirm the user
-          console.log('User created but not confirmed, attempting auto sign-in...');
-        }
-        
         // Try to sign in immediately after signup
-        setTimeout(async () => {
-          const { error: signInError } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-          if (!signInError) {
-            // Verify session was created before navigating
-            const { data } = await supabase.auth.getSession();
-            if (data?.session) {
-              navigate('/dashboard', { replace: true });
-            }
-          } else {
-            console.log('Auto sign-in failed:', signInError.message);
-            // User can manually sign in
-            setTimeout(() => {
-              navigate('/login', { replace: true });
-            }, 3000);
+        if (!signInError) {
+          // Verify session was created before navigating
+          const { data } = await supabase.auth.getSession();
+          if (data?.session) {
+            navigate('/dashboard', { replace: true });
           }
-        }, 1000);
+        } else {
+          console.log('Auto sign-in failed:', signInError.message);
+          setShowSuccessMessage(true);
+          // User can manually sign in
+          setTimeout(() => {
+            navigate('/login', { replace: true });
+          }, 3000);
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -83,7 +75,7 @@ const SignupForm = () => {
     }
   };
 
-  if (success) {
+  if (showSuccessMessage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 to-gray-800 px-4">
         <div className="max-w-md w-full text-center">
