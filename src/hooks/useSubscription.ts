@@ -35,16 +35,21 @@ export const useSubscription = () => {
         const { data, error } = await supabase
           .from('stripe_user_subscriptions')
           .select('*')
+          .eq('user_id', user.id)
           .maybeSingle();
 
         if (error) {
-          throw error;
+          console.error('Subscription fetch error:', error);
+          setError(null);
+          setSubscription(null);
+          return;
         }
 
         setSubscription(data);
       } catch (err) {
         console.error('Error fetching subscription:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch subscription');
+        setError(null);
+        setSubscription(null);
       } finally {
         setLoading(false);
       }
