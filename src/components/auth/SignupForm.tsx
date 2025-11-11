@@ -54,14 +54,14 @@ const SignupForm = () => {
         });
 
         if (!signInError) {
-          // Verify session was created before navigating
-          const { data } = await supabase.auth.getSession();
-          if (data?.session) {
+          // Wait a moment for auth state to update, then navigate
+          setTimeout(() => {
             navigate('/dashboard', { replace: true });
-          }
+          }, 100);
         } else {
           console.log('Auto sign-in failed:', signInError.message);
           setShowSuccessMessage(true);
+          setIsLoading(false);
           // User can manually sign in
           setTimeout(() => {
             navigate('/login', { replace: true });
@@ -70,7 +70,6 @@ const SignupForm = () => {
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
-    } finally {
       setIsLoading(false);
     }
   };
